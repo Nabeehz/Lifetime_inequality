@@ -1,0 +1,1210 @@
+---
+title: "Income growth and redistribution in the cross-section (point-in-time approach)"
+format: 
+  html:
+    toc: true
+    toc-depth: 2
+editor: visual
+execute: 
+  echo: false
+fig-cap-location: top
+---
+
+This section presents the cross-sectional trends in income growth and redistribution between 1991 and 2019. (Work in progress ....)
+
+```{r Setup}
+# Packages
+pacman::p_load(
+  here,tidyverse,reactable,scales,reactablefmtr,
+  # Some packages for nice and easy graphs...
+  ggthemes, ggrepel
+)
+
+#  Folders
+loc_raw <-  here("ALife_raw_stats")
+loc_out <-  here("Processed")
+
+# Graph options
+theme_set(theme_bw(base_family = "serif"))
+
+```
+
+# Market income growth
+
+## Growth in mean market income
+
+We begin by identifying sub-periods of growth and stagnation in mean market (Market) income over the 29 years.
+
+```{r}
+A <- 
+  read_csv(
+    here(
+      loc_raw,
+      "LI_02_Summary_stats_data_sample_excluded_by_sex.csv"
+    ),
+    show_col_types = F
+  ) %>% 
+  filter(insample=="sample"&sex=="Both") %>% 
+  select(year,var,mean) %>% 
+  mutate(
+    Income =
+      case_when(
+        var=="inc_lab"~"Labour income",
+        var=="inc_cap"~"Capital income",
+        var=="inc_pre"~"Market income",
+        var=="inc_pub"~"Public transfers",
+        var=="inc_tax"~"Income tax",
+        var=="inc_net"~"Post-government income"
+      )
+  ) %>% 
+  filter(!is.na(Income)) %>% 
+  select(-var) %>% 
+  group_by(Income) %>% 
+  arrange(Income,year) %>% 
+  mutate(ly=lag(`mean`)) %>% 
+  filter(!is.na(ly)) %>% 
+  mutate(g=`mean`-ly,
+         g=g/ly,
+         g=g*100,
+         cg=cumsum(g))
+```
+
+```{r}
+Z <- 
+  A %>% 
+  filter(Income=="Market income") %>% 
+  ungroup() %>% 
+  select(year,mean,g,cg) %>% 
+  pivot_longer(names_to = "Measure", values_to = "yy",
+               cols = c(mean,g,cg)) %>% 
+  mutate(Measure=
+           case_when(
+             Measure=="mean"~"Mean income ($2019)",
+             Measure=="g"~"Annual growth (%)",
+             Measure=="cg"~"Cumulative growth (%)"
+           ))
+```
+
+```{r}
+#| label: fig-mean_growth_inc_pre
+#| fig-cap: "Growth in mean market income"
+
+
+Z %>% 
+  mutate(label= if_else(year == 2019, 
+                        as.character(Measure), NA_character_)) %>% 
+  filter(str_detect(Measure,"growth")) %>% 
+  ggplot(aes(x=year,y=yy,
+             shape=Measure,color=Measure)) +
+  geom_point() +
+  geom_line() +
+  geom_label_repel(aes(label = label),
+                   nudge_y = 3,
+                   min.segment.length = Inf,
+                  na.rm = TRUE) +
+  labs(x="Year",y="Growth rate (%)") +
+  scale_x_continuous(breaks = seq(1991,2019,3)) +
+  scale_y_continuous(label=comma) +
+  theme(
+    axis.text = element_text(size = 12),
+    legend.position = "none",
+  ) +
+  scale_color_gdocs() 
+```
+
+The growth trends in @fig-mean_growth_inc_pre reveals four sub-periods of interest over the 29 years. These are 1991-1998, 1998-2003, 2003-2007 and 2007-2019. Table 1 summarizes the annual and cumulative growth rates.
+
+```{r}
+f_temp <- 
+  function(A,y1,y2){
+    A %>% 
+    filter(year >= y1 & year <= y2) %>%
+      group_by(Income) %>%
+      mutate(
+        min_g = min(g),
+        max_g = max(g),
+        min_year = ifelse(g == min_g, year, 0),
+        max_year = ifelse(g == max_g, year, 0)
+      ) %>%
+      summarise(
+        Mean = mean(g),
+        Cumulative = sum(g),
+        Highest = max(max_g),
+        Highest_yr = max(max_year),
+        Lowest = max(min_g),
+        Lowest_yr = max(min_year)
+      ) 
+  }
+
+Z <-
+  bind_rows(
+    A %>% f_temp(.,1991,1998) %>%  mutate(Period = "1991-1998"),
+    A %>% f_temp(.,1998,2003) %>%  mutate(Period = "1998-2003"),
+    A %>% f_temp(.,2003,2007) %>%  mutate(Period = "2003-2007"),
+    A %>% f_temp(.,2007,2019) %>%  mutate(Period = "2007-2019"),
+    A %>% f_temp(.,1991,2019) %>%  mutate(Period = "All 29 years"),
+  ) %>% 
+  mutate(
+    across(
+      c(Mean,Cumulative,Highest,Lowest),
+      ~round(.,digits = 2)
+    )
+  )
+```
+
+::: panel-tabset
+### Main table
+
+```{r}
+X <- 
+  Z %>% 
+  select(Period,Income,Mean,Cumulative) %>% 
+   filter(Income=="Capital income"|
+           Income=="Labour income"|
+           Income=="Market income") %>% 
+  mutate(Income=str_replace(Income," ","_")) %>% 
+  pivot_wider(names_from = Income,values_from = c(Mean,Cumulative))
+
+X %>% 
+  reactable(
+    
+    filterable = T,
+    columns = 
+      list(
+        Period=colDef(sticky = 'left'),
+        Mean_Capital_income=colDef(name="Capital Income"),
+        Mean_Labour_income=colDef(name="Labour Income"),
+        Mean_Market_income=colDef(name="Market Income"),
+        Cumulative_Capital_income=colDef(name="Capital Income"),
+        Cumulative_Labour_income=colDef(name="Labour Income"),
+        Cumulative_Market_income=colDef(name="Market Income")
+      ),
+    columnGroups = 
+      list(
+      colGroup(name="Annualised growth (%)", 
+               columns = c("Mean_Capital_income","Mean_Labour_income","Mean_Market_income")),
+      colGroup(name="Cumulative growth (%)", columns = c("Cumulative_Capital_income","Cumulative_Labour_income","Cumulative_Market_income"))
+    )
+  ) %>% 
+  add_title(
+    "Table 1: Growth in market income by sub-periods",
+    font_size = 20,
+    font_weight = "normal",
+    align = "left"
+  ) %>% 
+  add_source(
+    source = "Note: Annualized growth rates are averages of annual rates within each period. Cumulative growth rate is the sum of annual growth rates within each period.",
+    font_style = 'italic'
+  )
+```
+
+### Supplementary
+
+```{r}
+X <- 
+  Z %>% 
+  filter(Income=="Capital income"|
+           Income=="Labour income"|
+           Income=="Market income") %>% 
+  relocate(Period) %>% 
+  relocate(Cumulative,.after = Lowest_yr)
+
+X %>% 
+  reactable(
+    filterable = T,
+  #  groupBy = "Income",
+    columns = 
+      list(
+        Period=colDef(sticky = 'left'),
+        Income=colDef(sticky = 'left'),
+        Mean=colDef(name="Annualized (%)"),
+        Highest=colDef(name="Highest annual growth (%)"),
+        Highest_yr=colDef(name="Highest growth year"),
+        Lowest=colDef(name="Lowest annual growth (%)"),
+        Lowest_yr=colDef(name="Lowest growth year")
+      )
+  ) %>% 
+  add_title(
+    "Table 1-Supplementary: Growth in market income by sub-periods",
+    font_size = 20,
+    font_weight = "normal",
+    align = "left"
+  ) %>% 
+  add_source(
+    source = "Note: Annualized growth rates are averages of annual rates within each period. Cumulative growth rate is the sum of annual growth rates within each period.",
+    font_style = 'italic'
+  )
+```
+:::
+
+## Growth in mean labour and capital incomes
+
+On average, labour income forms a larger share of market income relative to capital income. Thus, growth rates for labour income and market income in Table 1 are relatively close. @fig-mean_growth_inc_cap_lab highlights this further by plotting the cumulative growth in market income, labour income and capital income from 1991-2019.
+
+```{r}
+#| label: fig-mean_growth_inc_cap_lab
+#| fig-cap: "Growth in capital and labour incomes"
+Z <- 
+  A %>% 
+  filter(Income=="Capital income"|Income=="Labour income"|Income=="Market income")
+
+Z %>% 
+    mutate(
+      label = NA_character_,
+      label = case_when(
+        Income=="Labour income"&year==1992~"Labour income",
+        Income=="Capital income"&year==2019~"Capital income",
+        Income=="Market income"&year==2018~"Market income"
+      )
+      ) %>% 
+  ggplot(aes(x=year,y=cg,color=Income,shape=Income)) +
+  geom_point() +
+  geom_line() +
+  geom_label_repel(aes(label = label),
+                   nudge_y = 10,
+                   min.segment.length = Inf,
+                  na.rm = TRUE) +
+  labs(x="Year",y="Cumulative growth rate (%)") +
+  scale_x_continuous(breaks = seq(1991,2019,3)) +
+  scale_y_continuous(label=comma) +
+  theme(
+    axis.text = element_text(size = 12),
+    legend.position = "none",
+  ) +
+  scale_color_gdocs()
+```
+
+## The distribution of market income growth
+
+We now dive deeper by examining how market income growth had been distributed across individuals. To do so, we examine income growth across percentiles of market income using growth incidence curves. The aim is to identify which percentiles of the market income distribution experienced higher growth and which percentiles experienced a decline or stagnation.
+
+```{r}
+A <- 
+  read_csv(
+    here(
+      loc_raw,"LI_02_Cross_quantile_means_all_and_by_sex.csv"
+    ),
+    show_col_types = F
+  ) %>% 
+  group_by(sex,quant,q) %>% 
+  arrange(sex,quant,q) %>%
+  mutate(
+    across(
+      c(starts_with("inc_")),
+      ~((./lag(.))-1)*100
+    )
+  ) %>% 
+  filter(!is.na(inc_pre))
+```
+
+```{r}
+#| include: false
+
+
+# Z <- 
+#   A %>% 
+#   filter(is.na(sex)&quant==5) %>% 
+#   ungroup() %>% 
+#   select(year,q,inc_pre) %>% 
+#   group_by(q) %>% 
+#   mutate(cg=cumsum(inc_pre),
+#          Quintile=as_factor(q)) 
+# 
+# Z %>% 
+#    mutate(label= if_else(year == 2019, 
+#                         str_c("Quintile ",q), NA_character_)) %>% 
+#   ggplot(aes(x=year,y=cg,shape=Quintile,color=Quintile)) +
+#   geom_point() +
+#   geom_line() +
+#  geom_label_repel(aes(label = label),
+#                    nudge_y = 0,
+#                    min.segment.length = Inf,
+#                   na.rm = TRUE) +
+#   labs(x="Year",y="Cumulative growth (%)") +
+#   scale_x_continuous(breaks = seq(1991,2019,3)) +
+#   scale_y_continuous(label=comma) +
+#   theme(
+#     axis.text = element_text(size = 12),
+#     legend.position = "none",
+#   ) +
+#   scale_color_gdocs() 
+```
+
+```{r}
+# Arc percentage...
+# A <- 
+#   read_csv(
+#     here(
+#       loc_raw,"LI_02_Cross_quantile_means_all_and_by_sex.csv"
+#     ),
+#     show_col_types = F
+#   ) %>% 
+#   group_by(sex,quant,q) %>% 
+#   arrange(sex,quant,q) %>%
+#   mutate(
+#     across(
+#       c(starts_with("inc_")),
+#       ~((.-lag(.))/((.+lag(.))/2))*100
+#     )
+#   ) %>% 
+#   filter(!is.na(inc_pre))
+```
+
+::: panel-tabset
+### Market income
+
+```{r}
+#| label: fig-gic_market_income
+#| fig-cap: "Growth incidence curve for market income"
+
+X <- 
+  A %>%
+  filter(is.na(sex)&quant==100&q>=10) %>% 
+  #filter(is.na(sex)&quant==100&q>10|(quant==10&q==1)) %>%
+  ungroup() %>% 
+  rename(g=inc_pre) %>% 
+  select(year,q,g)
+
+f_temp <- 
+  function(A,y1,y2){
+    A %>% 
+    filter(year >= y1 & year <= y2) %>%
+      group_by(q) %>%
+      summarise(
+        Mean = mean(g),
+        Cumulative = sum(g)
+      ) 
+  }
+
+Z <-
+  bind_rows(
+    #     X %>% f_temp(.,1991,2000) %>%  mutate(Period = "1990s"),
+    # X %>% f_temp(.,2000,2010) %>%  mutate(Period = "2000s"),
+    # X %>% f_temp(.,2010,2019) %>%  mutate(Period = "2010s")
+    X %>% f_temp(.,1991,1998) %>%  mutate(Period = "1991-1998"),
+    X %>% f_temp(.,1998,2003) %>%  mutate(Period = "1998-2003"),
+    X %>% f_temp(.,2003,2007) %>%  mutate(Period = "2003-2007"),
+    X %>% f_temp(.,2007,2019) %>%  mutate(Period = "2007-2019"),
+    # X %>% f_temp(.,1991,2019) %>%  mutate(Period = "All 29 years"),
+  ) %>% 
+  mutate(
+    across(
+      c(Mean,Cumulative),
+      ~round(.,digits = 2)
+    )
+  )
+
+Z %>% 
+  ggplot(aes(x=q,y=Mean,color=Period,shape=Period)) +
+  geom_point() +
+  geom_line() +
+  labs(x="Percentile",y="Annualised growth (%)") +
+  #scale_x_continuous(breaks = seq(10,100,2)) +
+  theme(
+    #axis.title.x = element_text(margin = margin(t = 10),size=15),
+    #axis.title.y =element_text(margin = margin(r = 10),size=15),
+    axis.text = element_text(size = 12),
+    legend.position = c(0.85,0.75),
+    legend.background = element_rect(fill = "transparent"),
+    legend.title = element_blank(),
+    legend.text = element_text(size=12)
+  ) +
+    scale_color_gdocs() +
+   scale_x_continuous(breaks = seq(10,100,10)) 
+```
+
+### Labour income
+
+```{r}
+#| label: fig-gic_labour_income
+#| fig-cap: "Growth incidence curve for labour income"
+
+X <- 
+  A %>%
+  filter(is.na(sex)&quant==100&q>=10) %>% 
+  #filter(is.na(sex)&quant==100&q>10|(quant==10&q==1)) %>%
+  ungroup() %>% 
+  rename(g=inc_lab) %>% 
+  select(year,q,g)
+
+f_temp <- 
+  function(A,y1,y2){
+    A %>% 
+    filter(year >= y1 & year <= y2) %>%
+      group_by(q) %>%
+      summarise(
+        Mean = mean(g),
+        Cumulative = sum(g)
+      ) 
+  }
+
+Z <-
+  bind_rows(
+    #     X %>% f_temp(.,1991,2000) %>%  mutate(Period = "1990s"),
+    # X %>% f_temp(.,2000,2010) %>%  mutate(Period = "2000s"),
+    # X %>% f_temp(.,2010,2019) %>%  mutate(Period = "2010s")
+    X %>% f_temp(.,1991,1998) %>%  mutate(Period = "1991-1998"),
+    X %>% f_temp(.,1998,2003) %>%  mutate(Period = "1998-2003"),
+    X %>% f_temp(.,2003,2007) %>%  mutate(Period = "2003-2007"),
+    X %>% f_temp(.,2007,2019) %>%  mutate(Period = "2007-2019"),
+    # X %>% f_temp(.,1991,2019) %>%  mutate(Period = "All 29 years"),
+  ) %>% 
+  mutate(
+    across(
+      c(Mean,Cumulative),
+      ~round(.,digits = 2)
+    )
+  )
+
+Z %>% 
+  ggplot(aes(x=q,y=Mean,color=Period,shape=Period)) +
+  geom_point() +
+  geom_line() +
+  labs(x="Percentile",y="Annualised growth (%)") +
+  #scale_x_continuous(breaks = seq(10,100,2)) +
+  theme(
+    #axis.title.x = element_text(margin = margin(t = 10),size=15),
+    #axis.title.y =element_text(margin = margin(r = 10),size=15),
+    axis.text = element_text(size = 12),
+    legend.position = c(0.85,0.75),
+    legend.background = element_rect(fill = "transparent"),
+    legend.title = element_blank(),
+    legend.text = element_text(size=12)
+  ) +
+    scale_color_gdocs() +
+   scale_x_continuous(breaks = seq(10,100,10)) 
+```
+
+### Capital income
+
+```{r}
+#| label: fig-gic_capital_income
+#| fig-cap: "Growth incidence curve for capital income"
+
+X <- 
+  A %>%
+  filter(is.na(sex)&quant==100&q>=10) %>% 
+  #filter(is.na(sex)&quant==100&q>10|(quant==10&q==1)) %>%
+  ungroup() %>% 
+  rename(g=inc_cap) %>% 
+  select(year,q,g)
+
+f_temp <- 
+  function(A,y1,y2){
+    A %>% 
+    filter(year >= y1 & year <= y2) %>%
+      group_by(q) %>%
+      summarise(
+        Mean = mean(g),
+        Cumulative = sum(g)
+      ) 
+  }
+
+Z <-
+  bind_rows(
+    #     X %>% f_temp(.,1991,2000) %>%  mutate(Period = "1990s"),
+    # X %>% f_temp(.,2000,2010) %>%  mutate(Period = "2000s"),
+    # X %>% f_temp(.,2010,2019) %>%  mutate(Period = "2010s")
+    X %>% f_temp(.,1991,1998) %>%  mutate(Period = "1991-1998"),
+    X %>% f_temp(.,1998,2003) %>%  mutate(Period = "1998-2003"),
+    X %>% f_temp(.,2003,2007) %>%  mutate(Period = "2003-2007"),
+    X %>% f_temp(.,2007,2019) %>%  mutate(Period = "2007-2019"),
+    # X %>% f_temp(.,1991,2019) %>%  mutate(Period = "All 29 years"),
+  ) %>% 
+  mutate(
+    across(
+      c(Mean,Cumulative),
+      ~round(.,digits = 2)
+    )
+  )
+
+Z %>% 
+  ggplot(aes(x=q,y=Mean,color=Period,shape=Period)) +
+  geom_point() +
+  geom_line() +
+  labs(x="Percentile",y="Annualised growth (%)") +
+  #scale_x_continuous(breaks = seq(10,100,2)) +
+  theme(
+    #axis.title.x = element_text(margin = margin(t = 10),size=15),
+    #axis.title.y =element_text(margin = margin(r = 10),size=15),
+    axis.text = element_text(size = 12),
+    legend.position = c(0.1,0.85),
+    legend.background = element_rect(fill = "transparent"),
+    legend.title = element_blank(),
+    legend.text = element_text(size=12)
+  ) +
+    scale_color_gdocs() +
+   scale_x_continuous(breaks = seq(10,100,10)) 
+```
+:::
+
+# Growth in tax liability and after tax income
+
+## Growth in mean income tax and post-tax income
+
+```{r}
+A <- 
+  read_csv(
+    here(
+      loc_raw,
+      "LI_02_Summary_stats_data_sample_excluded_by_sex.csv"
+    ),
+    show_col_types = F
+  ) %>% 
+  filter(insample=="sample"&sex=="Both") %>% 
+  select(year,var,mean) %>% 
+  mutate(
+    Income =
+      case_when(
+        var=="inc_lab"~"Labour income",
+        var=="inc_cap"~"Capital income",
+        var=="inc_pre"~"Market income",
+        var=="inc_pub"~"Public transfers",
+        var=="inc_tax"~"Income tax",
+        var=="inc_net"~"Post-government income"
+      )
+  ) %>% 
+  filter(!is.na(Income)) %>% 
+  select(-var) %>% 
+  group_by(Income) %>% 
+  arrange(Income,year) %>% 
+  mutate(ly=lag(`mean`)) %>% 
+  filter(!is.na(ly)) %>% 
+  mutate(g=`mean`-ly,
+         g=g/ly,
+         g=g*100,
+         cg=cumsum(g))
+```
+
+```{r}
+#| label: fig-mean_growth_post_gov_tax
+#| fig-cap: "Growth in mean tax liability and post-government income"
+Z <- 
+  A %>% 
+  filter(Income=="Income tax"|Income=="Post-government income"|Income=="Market income")
+
+Z %>% 
+    mutate(
+      label = NA_character_,
+      label = case_when(
+        Income=="Labour income"&year==1992~"Labour income",
+        Income=="Capital income"&year==2019~"Capital income",
+        Income=="Market income"&year==2018~"Market income"
+      )
+      ) %>% 
+  ggplot(aes(x=year,y=cg,color=Income,shape=Income)) +
+  geom_point() +
+  geom_line() +
+  labs(x="Year",y="Cumulative growth rate (%)") +
+  scale_x_continuous(breaks = seq(1991,2019,3)) +
+  scale_y_continuous(label=comma) +
+  theme(
+    axis.text = element_text(size = 12),
+    #legend.position = "none",
+    legend.position = c(0.25,0.85),
+    legend.background = element_rect(fill = "transparent"),
+    legend.title = element_blank(),
+    legend.text = element_text(size=12)
+  ) +
+  scale_color_gdocs()
+```
+
+## Growth in tax liability across the market income distribution
+
+```{r}
+A <- 
+  read_csv(
+    here(
+      loc_raw,"LI_02_Cross_quantile_means_all_and_by_sex.csv"
+    ),
+    show_col_types = F
+  ) %>% 
+  group_by(sex,quant,q) %>% 
+  arrange(sex,quant,q) %>%
+  mutate(
+    across(
+      c(starts_with("inc_")),
+      ~((./lag(.))-1)*100
+    )
+  ) %>% 
+  filter(!is.na(inc_pre)) %>% 
+  filter(is.na(sex)) %>% 
+  filter(quant==100&q>=10) %>%
+  ungroup() %>% 
+  select(year,q,inc_pre,inc_tax,inc_net)
+```
+
+### Growth incidence curves
+
+::: panel-tabset
+### 1991-1998
+
+```{r}
+#| label: fig-GIC_1991-1998_growth_post_gov_tax
+#| fig-cap: "Growth incidence of tax and post-government income: 1991-1998"
+Z <- 
+  A %>%
+  filter(year>=1991&year<=1998) %>% 
+  #filter(is.na(sex)&quant==100&q>10|(quant==10&q==1)) %>%
+  ungroup() %>% 
+  group_by(q) %>% 
+  summarise(
+    across(
+      starts_with("inc_"),
+      mean
+    )
+  ) %>% 
+  pivot_longer(names_to = "Income", cols = starts_with("inc_")) %>% 
+  mutate(
+    Income=
+      case_when(
+        Income=="inc_pre"~"Market income",
+        Income=="inc_tax"~"Income tax",
+        Income=="inc_net"~"Post-government income"
+      )
+  )
+
+Z %>% 
+  ggplot(aes(x=q,y=value,color=Income,shape=Income)) +
+  geom_point() +
+  geom_line() +
+  labs(x="Percentile",y="Annualised growth (%)") +
+  #scale_x_continuous(breaks = seq(10,100,2)) +
+  theme(
+    #axis.title.x = element_text(margin = margin(t = 10),size=15),
+    #axis.title.y =element_text(margin = margin(r = 10),size=15),
+    axis.text = element_text(size = 12),
+    legend.position = c(0.25,0.85),
+    legend.background = element_rect(fill = "transparent"),
+    legend.title = element_blank(),
+    legend.text = element_text(size=12)
+  ) +
+    scale_color_gdocs() +
+   scale_x_continuous(breaks = seq(10,100,10)) 
+```
+
+### 1998-2003
+
+```{r}
+#| label: fig-GIC_1998-2003_growth_post_gov_tax
+#| fig-cap: "Growth incidence of tax and post-government income: 1998-2003"
+Z <- 
+  A %>%
+  filter(year>=1998&year<=2003) %>% 
+  #filter(is.na(sex)&quant==100&q>10|(quant==10&q==1)) %>%
+  ungroup() %>% 
+  group_by(q) %>% 
+  summarise(
+    across(
+      starts_with("inc_"),
+      mean
+    )
+  ) %>% 
+  pivot_longer(names_to = "Income", cols = starts_with("inc_")) %>% 
+  mutate(
+    Income=
+      case_when(
+        Income=="inc_pre"~"Market income",
+        Income=="inc_tax"~"Income tax",
+        Income=="inc_net"~"Post-government income"
+      )
+  )
+
+Z %>% 
+  ggplot(aes(x=q,y=value,color=Income,shape=Income)) +
+  geom_point() +
+  geom_line() +
+  labs(x="Percentile",y="Annualised growth (%)") +
+  #scale_x_continuous(breaks = seq(10,100,2)) +
+  theme(
+    #axis.title.x = element_text(margin = margin(t = 10),size=15),
+    #axis.title.y =element_text(margin = margin(r = 10),size=15),
+    axis.text = element_text(size = 12),
+    legend.position = c(0.35,0.85),
+    legend.background = element_rect(fill = "transparent"),
+    legend.title = element_blank(),
+    legend.text = element_text(size=12)
+  ) +
+    scale_color_gdocs() +
+   scale_x_continuous(breaks = seq(10,100,10)) 
+```
+
+### 2003-2007
+
+```{r}
+#| label: fig-GIC_2003-2007_growth_post_gov_tax
+#| fig-cap: "Growth incidence of tax and post-government income: 2003-2007"
+Z <- 
+  A %>%
+  filter(year>=2003&year<=2007) %>% 
+  #filter(is.na(sex)&quant==100&q>10|(quant==10&q==1)) %>%
+  ungroup() %>% 
+  group_by(q) %>% 
+  summarise(
+    across(
+      starts_with("inc_"),
+      mean
+    )
+  ) %>% 
+  pivot_longer(names_to = "Income", cols = starts_with("inc_")) %>% 
+  mutate(
+    Income=
+      case_when(
+        Income=="inc_pre"~"Market income",
+        Income=="inc_tax"~"Income tax",
+        Income=="inc_net"~"Post-government income"
+      )
+  )
+
+Z %>% 
+  ggplot(aes(x=q,y=value,color=Income,shape=Income)) +
+  geom_point() +
+  geom_line() +
+  labs(x="Percentile",y="Annualised growth (%)") +
+  #scale_x_continuous(breaks = seq(10,100,2)) +
+  theme(
+    #axis.title.x = element_text(margin = margin(t = 10),size=15),
+    #axis.title.y =element_text(margin = margin(r = 10),size=15),
+    axis.text = element_text(size = 12),
+    legend.position = c(0.35,0.85),
+    legend.background = element_rect(fill = "transparent"),
+    legend.title = element_blank(),
+    legend.text = element_text(size=12)
+  ) +
+    scale_color_gdocs() +
+   scale_x_continuous(breaks = seq(10,100,10)) 
+```
+
+### 2007-2019
+
+```{r}
+#| label: fig-GIC_2007-2019_growth_post_gov_tax
+#| fig-cap: "Growth incidence of tax and post-government income: 2007-2019"
+Z <- 
+  A %>%
+  filter(year>=2007&year<=2019) %>% 
+  #filter(is.na(sex)&quant==100&q>10|(quant==10&q==1)) %>%
+  ungroup() %>% 
+  group_by(q) %>% 
+  summarise(
+    across(
+      starts_with("inc_"),
+      mean
+    )
+  ) %>% 
+  pivot_longer(names_to = "Income", cols = starts_with("inc_")) %>% 
+  mutate(
+    Income=
+      case_when(
+        Income=="inc_pre"~"Market income",
+        Income=="inc_tax"~"Income tax",
+        Income=="inc_net"~"Post-government income"
+      )
+  )
+
+Z %>% 
+  ggplot(aes(x=q,y=value,color=Income,shape=Income)) +
+  geom_point() +
+  geom_line() +
+  labs(x="Percentile",y="Annualised growth (%)") +
+  #scale_x_continuous(breaks = seq(10,100,2)) +
+  theme(
+    #axis.title.x = element_text(margin = margin(t = 10),size=15),
+    #axis.title.y =element_text(margin = margin(r = 10),size=15),
+    axis.text = element_text(size = 12),
+    legend.position = c(0.8,0.35),
+    legend.background = element_rect(fill = "transparent"),
+    legend.title = element_blank(),
+    legend.text = element_text(size=12)
+  ) +
+    scale_color_gdocs() +
+   scale_x_continuous(breaks = seq(10,100,10)) 
+```
+:::
+
+### A closer look at the bottom, middle and top 20% over the 3 decades
+
+```{r}
+A <- 
+  read_csv(
+    here(
+      loc_raw,"LI_02_Cross_quantile_means_all_and_by_sex.csv"
+    ),
+    show_col_types = F
+  ) %>% 
+  group_by(sex,quant,q) %>% 
+  arrange(sex,quant,q) %>%
+  mutate(
+    across(
+      c(starts_with("inc_")),
+      ~((./lag(.))-1)*100
+    )
+  ) %>%
+    filter(!is.na(inc_pre)) %>% 
+  mutate(
+    across(
+      c(starts_with("inc_")),
+      ~cumsum(.)
+    )
+  ) %>% 
+
+  filter(is.na(sex)) %>% 
+  filter(quant==5) %>%
+  ungroup() %>% 
+  select(year,q,inc_pre,inc_tax,inc_net) %>% 
+  pivot_longer(names_to = "Income",cols = starts_with("inc_")) %>% 
+  mutate(
+    Income=
+      case_when(
+        Income=="inc_pre"~"Market income",
+        Income=="inc_tax"~"Income tax",
+        Income=="inc_net"~"Post-government income"
+      )
+  )
+```
+
+::: panel-tabset
+### Bottom 20%
+
+```{r}
+#| label: fig-Bottom_growth_post_gov_tax
+#| fig-cap: "Cumulative growth in tax and post government income: bottom 20%"
+A %>% 
+  filter(q==1) %>% 
+  ggplot(aes(x=year,y=value,color=Income,shape=Income)) +
+  geom_point() +
+  geom_line() +
+  labs(x="Percentile",y="Cumulative growth (%)") +
+  #scale_x_continuous(breaks = seq(10,100,2)) +
+  theme(
+    #axis.title.x = element_text(margin = margin(t = 10),size=15),
+    #axis.title.y =element_text(margin = margin(r = 10),size=15),
+    axis.text = element_text(size = 12),
+    legend.position = c(0.2,0.8),
+    legend.background = element_rect(fill = "transparent"),
+    legend.title = element_blank(),
+    legend.text = element_text(size=12)
+  ) +
+    scale_color_gdocs() +
+   scale_x_continuous(breaks = seq(1991,2019,5)) +
+  scale_y_continuous(breaks = seq(-100,100,20)) 
+```
+
+### Middle (40-60%)
+
+```{r}
+#| label: fig-Middle_growth_post_gov_tax
+#| fig-cap: "Cumulative growth in tax and post government income: middle 20%"
+A %>% 
+  filter(q==3) %>% 
+  ggplot(aes(x=year,y=value,color=Income,shape=Income)) +
+  geom_point() +
+  geom_line() +
+  labs(x="Percentile",y="Cumulative growth (%)") +
+  #scale_x_continuous(breaks = seq(10,100,2)) +
+  theme(
+    #axis.title.x = element_text(margin = margin(t = 10),size=15),
+    #axis.title.y =element_text(margin = margin(r = 10),size=15),
+    axis.text = element_text(size = 12),
+    legend.position = c(0.2,0.8),
+    legend.background = element_rect(fill = "transparent"),
+    legend.title = element_blank(),
+    legend.text = element_text(size=12)
+  ) +
+    scale_color_gdocs() +
+   scale_x_continuous(breaks = seq(1991,2019,3)) 
+```
+
+### Top 20%
+
+```{r}
+#| label: fig-GIC_Top_growth_post_gov_tax
+#| fig-cap: "Cumulative growth in tax and post government income: top 20%"
+A %>% 
+  filter(q==5) %>% 
+  ggplot(aes(x=year,y=value,color=Income,shape=Income)) +
+  geom_point() +
+  geom_line() +
+  labs(x="Percentile",y="Cumulative growth (%)") +
+  #scale_x_continuous(breaks = seq(10,100,2)) +
+  theme(
+    #axis.title.x = element_text(margin = margin(t = 10),size=15),
+    #axis.title.y =element_text(margin = margin(r = 10),size=15),
+    axis.text = element_text(size = 12),
+    legend.position = c(0.2,0.8),
+    legend.background = element_rect(fill = "transparent"),
+    legend.title = element_blank(),
+    legend.text = element_text(size=12)
+  ) +
+    scale_color_gdocs() +
+   scale_x_continuous(breaks = seq(1991,2019,3)) +
+  scale_y_continuous(breaks = seq(-100,100,20)) 
+```
+:::
+
+# Income inequality and redistribution
+
+In this section, we examine how market income has been shared at each point in time from 1991 to 2019, and how it has been redistributed via the tax and transfer system.
+
+## Income and tax shares by quantiles of market income
+
+```{r}
+A <- 
+  read_csv(
+    here(
+      loc_raw,
+      "LI_02_Cross_quantile_shares_all_and_by_sex.csv"
+    ),
+    show_col_types = F
+  ) %>% 
+  mutate(
+    qtype=
+      case_when(
+        quant==5~"Quintile ",
+        quant==10~"Decile ",
+        quant==100~"Percentile ",
+        quant==1000~"Permille "
+      ),
+    quant=str_c(qtype,q)
+  ) %>% 
+    filter(is.na(sex)) %>% 
+  filter(
+    str_detect(quant,"Quint")|
+      str_detect(quant,"Decile 1")|
+      str_detect(quant,"Decile 10")|
+      str_detect(quant,"Percentile 100")|
+      str_detect(quant,"Permille 1000")
+  ) %>% 
+  mutate(quant=
+           case_when(
+             quant=="Decile 1"~"Bottom 10%",
+             quant=="Decile 10"~"Top 10%",
+             quant=="Percentile 100"~"Top 1%",
+             quant=="Permille 1000"~"Top 0.1%",
+             str_detect(quant,"Quint")~quant
+           ),
+         q=ifelse(quant=="Bottom 10%",0,q) # Just rearranging
+         ) %>% 
+  arrange(year,q) %>% 
+  select(year,quant,inc_lab,inc_cap,inc_pre,inc_tax,inc_pub,inc_net) %>% 
+  mutate(inc_rst=inc_tax/inc_pre) %>% 
+  ungroup() %>% 
+  mutate(
+    across(
+      starts_with("inc"),
+      ~round(.,digits = 2)
+    )
+  ) %>% 
+  pivot_longer(names_to = "Income", values_to = "vv", cols = starts_with("inc")) %>% 
+  mutate(
+    Income =
+      case_when(
+        Income=="inc_lab"~"Labour income",
+        Income=="inc_cap"~"Capital income",
+        Income=="inc_pre"~"Market income",
+        Income=="inc_pub"~"Public transfers",
+        Income=="inc_tax"~"Income tax",
+        Income=="inc_net"~"Post-government income",
+        Income=="inc_rst"~"Tax share/Income share"
+      )
+  ) %>% 
+  rename(Year=year)
+```
+
+```{r}
+Z <- 
+  A %>% 
+  pivot_wider(names_from = quant, values_from = vv) %>% 
+  arrange(Income,Year) %>% 
+  relocate(Income)
+```
+
+```{r}
+reactable(
+  Z,
+  filterable = T,
+  groupBy = "Income",
+  columns = 
+    list(
+      Year = colDef(sticky = 'left'),
+      Income = colDef(sticky = 'left'),
+      `Bottom 10%`=colDef(aggregate = "mean",
+                          format = colFormat(digits = 2) ),
+      `Quintile 1`=colDef(aggregate = "mean",
+                          format = colFormat(digits = 2) ),
+      `Quintile 2`=colDef(aggregate = "mean",
+                          format = colFormat(digits = 2) ),
+      `Quintile 3`=colDef(aggregate = "mean",
+                          format = colFormat(digits = 2) ),
+      `Quintile 4`=colDef(aggregate = "mean",
+                          format = colFormat(digits = 2) ),
+      `Quintile 5`=colDef(aggregate = "mean",
+                          format = colFormat(digits = 2) ),
+      `Top 10%`=colDef(aggregate = "mean",
+                          format = colFormat(digits = 2) ),
+      `Top 1%`=colDef(aggregate = "mean",
+                          format = colFormat(digits = 2) ),
+      `Top 0.1%`=colDef(aggregate = "mean",
+                          format = colFormat(digits = 2) )
+    )
+) %>% 
+  add_title(
+    "Table 2: Cross-section: Share of income and tax by quantiles of market income",
+    font_size = 20,
+    font_weight = "normal",
+    align = "left"
+  ) %>% 
+  add_source(
+    source = "Click on income to view values by year. The main table provides average values for all years. The last expandable row gives the relative share of tax (RST) which shows a quantile's share of total tax liability relative to its share of total market income",
+    font_style = 'italic'
+  )
+```
+
+(Note: next steps... add graph, integrate with this table...).
+
+## Distributional indices
+
+```{r}
+A <- 
+  read_csv(
+    here(
+      loc_raw,
+      "LI_02_Cross_Indices.csv"
+    ),
+    show_col_types = F
+  )
+```
+
+::: panel-tabset
+### Income inequality
+
+```{r}
+Z <- 
+  A %>% 
+  select(year,xvar,tvar,Gx_cov,Gy_cov) %>% 
+  filter(tvar=="overall") %>% 
+  select(year,Gx_cov,Gy_cov) %>% 
+  pivot_longer(names_to = "Income",values_to = "Gini", 
+               cols = -year) %>% 
+  mutate(Income=ifelse(Income=="Gx_cov","Market income","Post-government income"))
+```
+
+```{r}
+#| label: fig-Gini
+#| fig-cap: "Gini coefficient of market and post-government income"
+Z %>% 
+  ggplot(aes(x=year,y=Gini,shape=Income,color=Income)) +
+  geom_point() +
+  geom_line() +
+  labs(x="Year",y="Gini") +
+  #scale_x_continuous(breaks = seq(10,100,2)) +
+  theme(
+    #axis.title.x = element_text(margin = margin(t = 10),size=15),
+    #axis.title.y =element_text(margin = margin(r = 10),size=15),
+    axis.text = element_text(size = 12),
+    legend.position = c(0.2,0.8),
+    legend.background = element_rect(fill = "transparent"),
+    legend.title = element_blank(),
+    legend.text = element_text(size=12)
+  ) +
+    scale_color_gdocs() +
+   scale_x_continuous(breaks = seq(1991,2019,3)) +
+  scale_y_continuous(breaks = seq(0.2,0.5,0.03))
+```
+
+### Tax progressivity
+
+```{r}
+#| label: fig-Suits_tax
+#| fig-cap: "Suits index of tax progressivity"
+A %>% 
+  filter(tvar=="inc_tax"&xvar=="inc_pre") %>% 
+  ggplot(aes(x=year,y=S_cov)) +
+  geom_point() +
+  geom_line() +
+  labs(x="Year",y="Suits index") +
+  #scale_x_continuous(breaks = seq(10,100,2)) +
+  theme(
+    #axis.title.x = element_text(margin = margin(t = 10),size=15),
+    #axis.title.y =element_text(margin = margin(r = 10),size=15),
+    axis.text = element_text(size = 12),
+    legend.position = c(0.2,0.8),
+    legend.background = element_rect(fill = "transparent"),
+    legend.title = element_blank(),
+    legend.text = element_text(size=12)
+  ) +
+    scale_color_gdocs() +
+   scale_x_continuous(breaks = seq(1991,2019,3)) +
+  scale_y_continuous(breaks = seq(0.1,0.3,0.02))
+```
+
+### Transfer progressivity
+
+```{r}
+#| label: fig-Suits_transfer
+#| fig-cap: "Suits index of transfer progressivity"
+A %>% 
+  filter(tvar=="inc_pub"&xvar=="inc_pre") %>% 
+  mutate(S_cov=abs(S_cov)) %>% 
+  ggplot(aes(x=year,y=S_cov)) +
+  geom_point() +
+  geom_line() +
+  labs(x="Year",y="Suits index (absolute value)") +
+  #scale_x_continuous(breaks = seq(10,100,2)) +
+  theme(
+    #axis.title.x = element_text(margin = margin(t = 10),size=15),
+    #axis.title.y =element_text(margin = margin(r = 10),size=15),
+    axis.text = element_text(size = 12),
+    legend.position = c(0.2,0.8),
+    legend.background = element_rect(fill = "transparent"),
+    legend.title = element_blank(),
+    legend.text = element_text(size=12)
+  ) +
+    scale_color_gdocs() +
+   scale_x_continuous(breaks = seq(1991,2019,3)) +
+  scale_y_continuous(breaks=seq(0.9,0.99,0.005))
+```
+
+### Redistributive index
+
+```{r}
+
+#| label: fig-ReySmol
+#| fig-cap: "Reynolds-Smolensky index of redistributive effect"
+
+
+Z <- 
+  A %>% 
+  filter((xvar=="inc_pre"&tvar=="inc_tax")|
+           (xvar=="inc_pre"&tvar=="inc_pub")|
+           (xvar=="inc_pre"&tvar=="overall")) %>% 
+  select(year,xvar,tvar,R_cov) %>% 
+  mutate(
+    `Redistributive effect of:` =
+      case_when(
+        tvar=="inc_tax"~"Income tax",
+        tvar=="inc_pub"~"Public transfers (recorded in tax data)",
+        tvar=="overall"~"Both tax and transfers"
+      )
+      
+  )
+
+Z %>% 
+  ggplot(aes(x=year,y=R_cov,shape=`Redistributive effect of:`,color=`Redistributive effect of:`)) +
+  geom_point() +
+  geom_line() +
+  labs(x="Year",y="Reynolds-Smolensky index") +
+  #scale_x_continuous(breaks = seq(10,100,2)) +
+  theme(
+    #axis.title.x = element_text(margin = margin(t = 10),size=15),
+    #axis.title.y =element_text(margin = margin(r = 10),size=15),
+    axis.text = element_text(size = 12),
+    legend.position = c(0.7,0.45),
+    legend.background = element_rect(fill = "transparent"),
+    #legend.title = element_blank(),
+    legend.text = element_text(size=12)
+  ) +
+    scale_color_gdocs() +
+   scale_x_continuous(breaks = seq(1991,2019,3))
+```
+:::

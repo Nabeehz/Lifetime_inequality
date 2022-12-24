@@ -1,0 +1,451 @@
+---
+title: "Sample composition and summary statistics"
+format: 
+  html:
+    toc: true
+    toc-depth: 2
+editor: visual
+execute: 
+  echo: false
+---
+
+This section provides details of the sample composition for the Cross-Sectional and Lifetime analyses. The tables in this section are interactive (search, filter and sort).
+
+```{r Setup}
+# Packages
+pacman::p_load(
+  here,tidyverse,reactable,scales,reactablefmtr
+)
+
+#  Folders
+loc_raw <-  here("ALife_raw_stats")
+loc_out <-  here("Processed")
+```
+
+# Cross-section
+
+Sample restrictions:
+
+-   Non-negative labour and capital incomes.
+
+-   Non-negative public transfers and income tax.
+
+-   Aged 20 years and above.
+
+## Sample composition
+
+Table 1 presents the number of men and women who were included in the sample ("Sample") and those who were excluded ("Excluded") in each year.
+
+```{r}
+A <- 
+  read_csv(
+    here(
+      loc_raw,"LI_02_Frequencies_data_sample_excluded_by_sex.csv"),
+    show_col_types = F
+  ) %>% 
+  pivot_wider(names_from = insample, values_from = c(Both,`F`,`M`,`NA`)) %>% 
+  select(-starts_with("NA")) %>% 
+  rename(Year=year) %>% 
+  mutate(
+    across(
+      .cols = c(where(is.numeric),-Year),
+      label_comma()
+    )
+  )
+
+reactable(
+  A,
+  filterable = T,
+  columns = 
+    list(
+      Both_data = colDef(name="Data"),
+      Both_excluded  = colDef(name="Excluded"),
+      Both_sample = colDef(name="Sample"),
+      M_data = colDef(name="Data"),
+      M_excluded  = colDef(name="Excluded"),
+      M_sample = colDef(name="Sample"),
+      F_data = colDef(name="Data"),
+      F_excluded  = colDef(name="Excluded"),
+      F_sample = colDef(name="Sample")
+    ),
+  columnGroups = 
+    list(
+      colGroup(name="All", 
+               columns = c(
+                 "Both_data","Both_excluded","Both_sample")),
+      colGroup(name="Males", 
+               columns = c(
+                 "M_data","M_excluded","M_sample")),
+      colGroup(name="Females", 
+               columns = c(
+                 "F_data","F_excluded","F_sample"))
+    )
+) %>% 
+  add_title(
+    "Table 1: Number of individuals by sex - excluded vs. included in the sample",
+    font_size = 20,
+    font_weight = "normal",
+    align = "left"
+  ) %>% 
+  add_source(
+    source = "Note: All - all individuals. Data - Complete ALife data. Excluded - excluded from the analysis. Sample - Sample used for analysis.
+    Since 2014, there are a few NA values for sex in the data. They have not been excluded in any analysis except for comparisons between sexes. The number of individuals are fairly negligible and range from 1 in 2014 to 116 in 2019",
+    font_style = 'italic'
+  )
+```
+
+Table 2 presents the percentage of men and women in the sample, data and excluded in each year.
+
+```{r}
+A <- 
+  read_csv(
+    here(
+      loc_raw,"LI_02_Frequencies_data_sample_excluded_by_sex.csv"),
+    show_col_types = F
+  ) %>% 
+  mutate(`F`=`F`/Both*100,`M`=`M`/Both*100) %>% 
+   pivot_wider(names_from = insample, values_from = c(Both,`F`,`M`,`NA`)) %>% 
+  select(-starts_with("NA"),-starts_with("Both")) %>% 
+  rename(Year=year) %>% 
+  mutate(
+    across(
+      .cols = c(where(is.numeric),-Year),
+      label_comma()
+    )
+  )
+
+reactable(
+  A,
+  filterable = T,
+  columns = 
+    list(
+      M_data = colDef(name="Data"),
+      M_excluded  = colDef(name="Excluded"),
+      M_sample = colDef(name="Sample"),
+      F_data = colDef(name="Data"),
+      F_excluded  = colDef(name="Excluded"),
+      F_sample = colDef(name="Sample")
+    ),
+  columnGroups = 
+    list(
+      colGroup(name="Males", 
+               columns = c(
+                 "M_data","M_excluded","M_sample")),
+      colGroup(name="Females", 
+               columns = c(
+                 "F_data","F_excluded","F_sample"))
+    )
+) %>% 
+  add_title(
+    "Table 2: Percentage of males and females",
+    font_size = 20,
+    font_weight = "normal",
+    align = "left"
+  ) %>% 
+  add_source(
+    source = "Note: All - all individuals. Data - Complete ALife data. Excluded - excluded from the analysis. Sample - Sample used for analysis.
+    Since 2014, there are a few NA values for sex in the data. They have not been excluded in any analysis except for comparisons between sexes. The number of individuals are fairly negligible and range from 1 in 2014 to 116 in 2019",
+    font_style = 'italic'
+  )
+```
+
+Table 3 provides the mean, median and standard deviation of age for all individuals and by sex for our annual samples.
+
+```{r}
+A <- 
+  read_csv(
+    here(
+      loc_raw,"LI_02_Summary_stats_data_sample_excluded_by_sex.csv"),
+    show_col_types = F
+  )  %>% 
+  filter(!is.na(sex)) %>% 
+  filter(var=="age"&insample=="sample") %>% 
+  pivot_wider(names_from = c(sex), values_from = c(`mean`,`sd`,`median`)) %>% 
+  select(-var,-insample) %>% 
+  rename(Year=year) %>% 
+  mutate(
+    across(
+      .cols = c(where(is.numeric),-Year),
+      ~round(.,digits = 0)
+    )
+  )
+
+reactable(
+  A,
+  filterable = T,
+  columns = 
+    list(
+      mean_Both = colDef(name = "Mean"),
+      mean_M = colDef(name = "Mean"),
+      mean_F = colDef(name = "Mean"),
+      median_Both = colDef(name = "Median"),
+      median_M = colDef(name = "Median"),
+      median_F = colDef(name = "Median"),
+      sd_Both = colDef(name = "SD"),
+      sd_M = colDef(name = "SD"),
+      sd_F = colDef(name = "SD")
+    ),
+  columnGroups = 
+    list(
+      colGroup(name="All", 
+               columns = c(
+                 "mean_Both","sd_Both","median_Both")),
+      colGroup(name="Males", 
+               columns = c(
+                 "mean_M","sd_M","median_M")),
+      colGroup(name="Females", 
+               columns = c(
+                 "mean_F","sd_F","median_F"))
+    )
+) %>% 
+  add_title(
+    "Table 3: Mean, standard deviation and median age by sex",
+    font_size = 20,
+    font_weight = "normal",
+    align = "left"
+  ) 
+```
+
+## Summary income and tax statistics
+
+In this section, we present the income and tax summary statistics for our sample.
+
+```{r}
+A <- 
+  read_csv(
+    here(
+      loc_raw,"LI_02_Summary_stats_data_sample_excluded_by_sex.csv"),
+    show_col_types = F
+  ) %>% 
+  filter(insample=="sample") %>% 
+  mutate(
+    Income =
+      case_when(
+        var=="inc_lab"~"Labour income",
+        var=="inc_cap"~"Capital income",
+        var=="inc_pre"~"Pre-government income",
+        var=="inc_pub"~"Public transfers",
+        var=="inc_tax"~"Income tax",
+        var=="inc_net"~"Post-government income"
+      )
+  ) %>% 
+  filter(!is.na(Income)&!is.na(sex)) %>% 
+  select(-var,-insample) %>% 
+  pivot_wider(names_from = c(sex), values_from = c(`mean`,`sd`,`median`)) %>% 
+  rename(Year=year) %>% 
+  mutate(
+    across(
+      .cols = c(where(is.numeric),-Year),
+      ~round(.,digits = 0)
+    )
+  ) 
+
+reactable(
+  A,
+  filterable = T,
+  groupBy = "Income", paginateSubRows = TRUE,
+  columns = 
+    list(
+      Year = colDef(sticky = 'left'),
+      Income = colDef(sticky = 'left'),
+      mean_Both = colDef(name = "Mean",aggregate = 'mean',format = colFormat(separators = TRUE, digits = 0)),
+      mean_M = colDef(name = "Mean",aggregate = 'mean',format = colFormat(separators = TRUE, digits = 0)),
+      mean_F = colDef(name = "Mean",aggregate = 'mean',format = colFormat(separators = TRUE, digits = 0)),
+      median_Both = colDef(name = "Median",aggregate = 'mean',format = colFormat(separators = TRUE, digits = 0)),
+      median_M = colDef(name = "Median",aggregate = 'mean',format = colFormat(separators = TRUE, digits = 0)),
+      median_F = colDef(name = "Median",aggregate = 'mean',format = colFormat(separators = TRUE, digits = 0)),
+      sd_Both = colDef(name = "SD",aggregate = 'mean',format = colFormat(separators = TRUE, digits = 0)),
+      sd_M = colDef(name = "SD",aggregate = 'mean',format = colFormat(separators = TRUE, digits = 0)),
+      sd_F = colDef(name = "SD",aggregate = 'mean',format = colFormat(separators = TRUE, digits = 0))
+    ),
+  columnGroups = 
+    list(
+      colGroup(name="All", 
+               columns = c(
+                 "mean_Both","sd_Both","median_Both")),
+      colGroup(name="Males", 
+               columns = c(
+                 "mean_M","sd_M","median_M")),
+      colGroup(name="Females", 
+               columns = c(
+                 "mean_F","sd_F","median_F"))
+    )
+) %>% 
+  add_title(
+    "Table 4: Income and tax summary statistics by sex",
+    font_size = 20,
+    font_weight = "normal",
+    align = "left"
+  ) %>% 
+  add_source(
+    source = "Note: Unexpanded row of each statistic provides the mean value across all years.",
+    font_style = 'italic'
+  )
+```
+
+# **Lifetime - 30 to 50 years sample**
+
+Sample restrictions:
+
+-   Non-negative lifetime labour and capital incomes.
+
+-   Non-negative lifetime public transfers and income tax.
+
+-   From age 30 to age 50 (inclusive).
+
+-   Individuals who filed a tax return in each and every consecutive year over the 21 years.
+
+## Sample composition
+
+```{r}
+Z <- 
+  read_csv(
+    here(
+      loc_raw,
+      "LI_03_30_to_50_Lifetime_Frequencies_by_cohort.csv"
+    ),
+    show_col_types = F
+  ) %>% 
+  select(cohort,sample) 
+
+A <- 
+    read_csv(
+    here(
+      loc_raw,
+      "LI_03_30_to_50_Lifetime_Frequencies_by_cohort_and_sex.csv"
+    ),
+    show_col_types = F
+  ) %>% 
+  full_join(.,Z,by="cohort") %>% 
+  mutate(
+    M_pct=M/sample*100,
+    F_pct=F/sample*100
+  ) %>% 
+  mutate(M_pct=round(M_pct),F_pct=round(F_pct)) %>% 
+  mutate(
+    across(
+      c(where(is.numeric),-cohort),
+      label_comma()
+    )
+  ) %>% 
+  mutate(
+    `Birth year`=cohort-30,
+    `First year`=cohort,
+    `Last year`=cohort+20
+  ) %>% 
+  select(`Birth year`,`First year`,`Last year`,sample,M,`F`,M_pct,F_pct) 
+
+reactable(
+  A,
+  filterable = T,
+  columns = 
+    list(
+      sample = colDef(name = "All (N)"),
+      M = colDef(name = "N"),
+      `F` = colDef(name = "N"),
+      M_pct = colDef(name = "%"),
+      F_pct = colDef(name = "%")
+    ),
+  columnGroups = 
+    list(
+      colGroup(name="Males", 
+               columns = c(
+                 "M","M_pct")),
+      colGroup(name="Females", 
+               columns = c(
+                 "F","F_pct"))
+    )
+) %>% 
+  add_title(
+    "Table 5: Lifetime age 30-50 years - Sample composition",
+    font_size = 20,
+    font_weight = "normal",
+    align = "left"
+  ) 
+```
+
+## Summary income and tax statistics
+
+Table 6 consists of summary statistics of lifetime income and tax variables by cohort and sex. Lifetime values are calculated by converting annual nominal values into 2019 dollars using the CPI and summing across the 21 years. The Table presents annualized lifetime income and tax figures (i.e. divided by 21 years).
+
+```{r}
+A <- 
+  read_csv(
+    here(
+      loc_raw,
+      "LI_03_30_to_50_Lifetime_summary_stats.csv"
+    ),
+    show_col_types = F
+  ) %>% 
+  mutate(
+    across(
+      c(mean,sd,median),
+      ~./21
+    )
+  ) %>% 
+  mutate(
+    Income =
+      case_when(
+        var=="inc_lab"~"Labour income",
+        var=="inc_cap"~"Capital income",
+        var=="inc_pre"~"Pre-government income",
+        var=="inc_pub"~"Public transfers",
+        var=="inc_tax"~"Income tax",
+        var=="inc_net"~"Post-government income"
+      )
+  ) %>% 
+  filter(!is.na(Income)) %>% 
+  select(-var) %>% 
+  pivot_wider(names_from = c(sex), values_from = c(`mean`,`sd`,`median`)) %>% 
+  mutate(
+    Cohort=cohort-30,
+    across(
+      .cols = c(where(is.numeric),-Cohort),
+      ~round(.,digits = 0)
+    )
+  ) %>% 
+  select(-cohort) %>% 
+  relocate(Cohort)
+
+reactable(
+  A,
+  filterable = T,
+  groupBy = "Income", paginateSubRows = TRUE,
+  columns = 
+    list(
+      Cohort = colDef(sticky = 'left'),
+      Income = colDef(sticky = 'left'),
+      mean_Both = colDef(name = "Mean",aggregate="mean",format = colFormat(separators = TRUE, digits = 0)),
+      mean_M = colDef(name = "Mean",aggregate="mean",format = colFormat(separators = TRUE, digits = 0)),
+      mean_F = colDef(name = "Mean",aggregate="mean",format = colFormat(separators = TRUE, digits = 0)),
+      median_Both = colDef(name = "Median",aggregate="mean",format = colFormat(separators = TRUE, digits = 0)),
+      median_M = colDef(name = "Median",aggregate="mean",format = colFormat(separators = TRUE, digits = 0)),
+      median_F = colDef(name = "Median",aggregate="mean",format = colFormat(separators = TRUE, digits = 0)),
+      sd_Both = colDef(name = "SD",aggregate="mean",format = colFormat(separators = TRUE, digits = 0)),
+      sd_M = colDef(name = "SD",aggregate="mean",format = colFormat(separators = TRUE, digits = 0)),
+      sd_F = colDef(name = "SD",aggregate="mean",format = colFormat(separators = TRUE, digits = 0))
+    ),
+  columnGroups = 
+    list(
+      colGroup(name="All", 
+               columns = c(
+                 "mean_Both","sd_Both","median_Both")),
+      colGroup(name="Males", 
+               columns = c(
+                 "mean_M","sd_M","median_M")),
+      colGroup(name="Females", 
+               columns = c(
+                 "mean_F","sd_F","median_F"))
+    )
+) %>% 
+  add_title(
+    "Table 6: Lifetime age 30-50 years: Income and tax summary statistics by sex",
+    font_size = 20,
+    font_weight = "normal",
+    align = "left"
+  ) %>% 
+  add_source(
+    source = "Note: Unexpanded row of each statistic provides the mean value across all years.",
+    font_style = 'italic'
+  )
+```
