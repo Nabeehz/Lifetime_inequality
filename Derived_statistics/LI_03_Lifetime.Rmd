@@ -1,0 +1,531 @@
+---
+title: "Lifetime Inequality: Lifetime"
+output: html_notebook
+---
+
+```{r Setup}
+# Dont need code to show
+knitr::opts_chunk$set(echo = F)
+# Packages
+pacman::p_load(
+  tidyverse,
+  here,
+  arrow,
+  janitor
+)
+
+# Folders
+data_raw <- "G:/aLifeData/ALife2019a/csv" # Original raw data
+data_dir <- "P:/IND2019a2021007/Nabeeh/Raw_data" # Extracted raw data
+data_proc <- here("Lifetime_inequality","Processed_data") 
+
+# CPI
+CPI <- 
+  read_csv(here(data_dir,"CPI.csv"),show_col_types = F)
+```
+
+# Extract cohort data
+
+```{r Setup_cohort}
+# Set age limits
+age1 = 30  # First year
+age2  = 50 # Last year
+numyrs = age2-age1+1 # Number of years of data
+# Pick cohorts
+dyear1 = 1991 # First year of data
+dyear2 = 2019 # Last year of data
+cohort1 = dyear1-age1 # First cohort
+cohort2 = dyear2-age2 # Last cohort
+# File list
+dyears <- c(dyear1:dyear2)
+dfiles <- 
+  str_glue("P:/IND2019a2021007/Nabeeh/Raw_data/LI_01_Derived_{dyears}.feather")
+```
+
+```{r f_extract}
+f_extract <- 
+  function(dfile){
+A <- 
+  read_feather(dfile,
+               as_data_frame = F) %>% 
+  mutate(cohort=year-age) %>% 
+  filter(
+        (cohort>=cohort1&cohort<=cohort2)&
+          (age>=age1&age<=age2)
+      ) %>% 
+  select(-ends_with("_2")) %>% 
+  rename_with(.,~str_remove(.,"_1")) %>% 
+  mutate(inc_pre=inc_lab+inc_cap,
+         inc_post_pub=inc_pre+inc_pub,
+         inc_net=inc_post_pub-inc_tax) %>% 
+  collect()
+  }
+
+A <- 
+  map_dfr(dfiles,f_extract) %>% 
+  # Number of years in the sample
+  arrange(pid) %>% 
+  group_by(pid) %>% 
+  mutate(n_years=n()) %>% 
+  ungroup() 
+
+
+A <- 
+  # Convert nominal to real
+  left_join(A,CPI,by="year") %>% 
+  mutate(
+    across(
+      c(starts_with("inc_"),starts_with("ic_"),starts_with("isc_")),
+      ~./cpi
+    )
+  ) %>% 
+  group_by(pid) %>% 
+  # Sum incomes and tax
+  mutate(across(
+    c(starts_with("inc_"), starts_with("ic_"), starts_with("isc_")
+  ),
+  ~ sum(.),
+  .names = "Sum_{.col}")) %>% 
+  # Sample restrictions
+  mutate(
+    insample="sample",
+    insample =
+      if_else(
+        Sum_inc_lab < 0 |
+          Sum_inc_cap < 0 |
+          Sum_inc_pub < 0 |
+          Sum_inc_tax < 0 |
+          Sum_inc_pre < 0 |
+          Sum_inc_post_pub < 0 |
+          Sum_inc_net < 0 |
+          n_years!=numyrs,
+        "excluded",
+        insample
+      )
+  )
+
+write_feather(
+  A,
+  here(
+    data_dir,
+    paste0("LI_03_Lifetime_",age1,"_to_",age2,"_years.feather")
+  )
+)
+```
+
+# Frequencies and summary statistics
+
+```{r f_summary}
+f_temp <- 
+  function(A){
+    A %>% 
+    filter(!is.na(x)) %>% summarise(mean=mean(x),sd=sd(x),median=median(x))
+  }
+
+f_temp2 <- 
+  function(A){
+X <- 
+  bind_rows(
+    A %>%  rename(x=age) %>% f_temp(.) %>%  
+      collect() %>% mutate(var="age") ,
+    A %>%  rename(x=inc_lab) %>% f_temp(.) %>%  
+      collect() %>% mutate(var="inc_lab") ,
+    A %>%  rename(x=inc_cap) %>% f_temp(.) %>%  
+      collect() %>% mutate(var="inc_cap") ,
+    A %>%  rename(x=inc_pub) %>% f_temp(.) %>%  
+      collect() %>% mutate(var="inc_pub") ,
+    A %>%  rename(x=inc_tax) %>% f_temp(.) %>%  
+      collect() %>% mutate(var="inc_tax") ,
+    A %>%  rename(x=inc_pre) %>% f_temp(.) %>%  
+      collect() %>% mutate(var="inc_pre") ,
+    A %>%  rename(x=inc_post_pub) %>% f_temp(.) %>%  
+      collect() %>% mutate(var="inc_post_pub") ,
+    A %>%  rename(x=inc_net) %>% f_temp(.) %>%  
+      collect() %>% mutate(var="inc_net") ,
+    A %>%  rename(x=ic_taxable_income_loss) %>% f_temp(.) %>%  
+      collect() %>% mutate(var="ic_taxable_income_loss") ,
+    A %>%  rename(x=ic_total_income_loss) %>% f_temp(.) %>%  
+      collect() %>% mutate(var="ic_total_income_loss") 
+  ) %>% 
+  relocate(var)
+}
+```
+
+```{r Load_data}
+A <- 
+  read_feather(here(
+    data_dir,
+    paste0("LI_03_Lifetime_", age1, "_to_", age2, "_years.feather")
+  ),as_data_frame = T) %>% 
+  mutate(cohort=year-age) %>% 
+  select(cohort,insample,pid,age,sex,starts_with("Sum_")) %>% 
+  rename_with(.,~str_remove(.,"Sum_")) %>% 
+  group_by(pid) %>% 
+  filter(row_number()==1) %>% 
+  ungroup() %>% 
+  mutate(cohort=cohort+age1)
+```
+
+```{r Means_medians_sd}
+Z <- 
+  bind_rows(
+    A  %>% 
+      filter(insample=="sample") %>% 
+      group_by(cohort) %>% f_temp2() %>%   mutate(sex="Both"),
+    A  %>% 
+      filter(insample=="sample") %>%
+      group_by(cohort,sex) %>% f_temp2()
+  ) %>% 
+  relocate(cohort,var,sex)
+```
+
+```{r}
+write_csv(Z,
+          here(data_proc,
+               paste0("LI_03_", age1, "_to_", age2, "_Lifetime_summary_stats.csv")))
+```
+
+```{r Frequencies}
+Z <- 
+  A %>% 
+  tabyl(cohort,insample)
+
+write_csv(Z,
+          here(data_proc,
+               paste0("LI_03_", age1, "_to_", age2, "_Lifetime_Frequencies_by_cohort.csv")))
+
+Z <- 
+  A %>% 
+  tabyl(sex,insample)
+
+write_csv(Z,
+          here(data_proc,
+               paste0("LI_03_", age1, "_to_", age2, "_Lifetime_Frequencies_by_sex.csv")))
+
+Z <- 
+  A %>% 
+  filter(insample=="sample") %>% 
+  tabyl(cohort,sex)
+
+write_csv(Z,
+          here(data_proc,
+               paste0("LI_03_", age1, "_to_", age2, "_Lifetime_Frequencies_by_cohort_and_sex.csv")))
+```
+
+# Life-cycle income profiles
+
+```{r}
+A <-
+  read_feather(here(
+    data_dir,
+    paste0("LI_03_Lifetime_", age1, "_to_", age2, "_years.feather")
+  )) %>% 
+  filter(insample=="sample") %>% 
+  mutate(cohort=year-age) %>% 
+  mutate(cohort=cohort+age1)
+```
+
+```{r}
+Z <-
+  bind_rows(
+  A %>% 
+  group_by(cohort,sex,age) %>% 
+  summarise(
+    across(
+      starts_with("inc_"),
+      list(Mean=mean,SD=sd,Median=median),
+      .names = "{.fn}_{.col}"
+    )
+  ),
+  A %>% 
+  group_by(cohort,age) %>% 
+  summarise(
+    across(
+      starts_with("inc_"),
+      list(Mean=mean,SD=sd,Median=median),
+      .names = "{.fn}_{.col}"
+    )
+  ) %>% 
+    mutate(sex="Both")
+  ) 
+
+
+
+write_csv(Z,
+          here(data_proc,
+               paste0("LI_03_", age1, "_to_", age2, "_Lifecycle_profiles.csv")))
+```
+
+```{r eval=FALSE, include=FALSE}
+Z %>% 
+  mutate(Cohort=as_factor(cohort)) %>% 
+  ggplot(aes(x=age,y=Median_inc_lab,color=sex)) +
+  geom_point()
+```
+
+# Lifetime means by quantiles
+
+## Means
+
+```{r}
+A <- 
+  read_feather(here(
+    data_dir,
+    paste0("LI_03_Lifetime_", age1, "_to_", age2, "_years.feather")
+  ),as_data_frame = T) %>% 
+  filter(insample=="sample") %>% 
+  mutate(cohort=year-age) %>% 
+  select(cohort,insample,pid,age,sex,starts_with("Sum_")) %>% 
+  group_by(pid) %>% 
+  filter(row_number()==1) %>% 
+  ungroup() %>% 
+  mutate(cohort=cohort+age1)
+```
+
+```{r}
+f_quant <- 
+  function(A,qq){
+    A %>% 
+      mutate(q=ntile(Sum_inc_pre,qq)) %>% 
+      group_by(q,.add=T) %>% 
+      summarise(
+        across(
+          starts_with("Sum_inc_"),
+          mean
+        )
+      ) %>% 
+      mutate(quant=qq)    
+  }
+```
+
+```{r}
+Z <- 
+  bind_rows(
+    A %>% group_by(cohort) %>% f_quant(.,5) , 
+    A %>% group_by(cohort) %>% f_quant(.,10) , 
+    A %>% group_by(cohort) %>% f_quant(.,100) , 
+    A %>% group_by(cohort) %>% f_quant(.,1000)  %>% 
+      filter(q==1000) ,
+    
+    A %>% group_by(cohort,sex) %>% f_quant(.,5),
+    A %>% group_by(cohort,sex) %>% f_quant(.,10),
+    A %>% group_by(cohort,sex) %>% f_quant(.,100),
+    A %>% group_by(cohort,sex) %>% f_quant(.,1000) %>% filter(q==1000),
+  ) %>% 
+  relocate(cohort,sex,quant,q)
+
+write_csv(Z,
+          here(data_proc,
+               paste0("LI_03_", age1, "_to_", age2, "_Lifetime_quantile_means.csv")))
+```
+
+## Shares
+
+```{r}
+f_quant <- 
+  function(A,qq){
+    A %>% 
+      arrange(Sum_inc_pre) %>% 
+      mutate(q=ntile(Sum_inc_pre,qq)) %>% 
+      group_by(q,.add=T) %>% 
+      summarise(
+        across(
+          starts_with("Sum_inc_"),
+          sum
+        )
+      ) %>% 
+      ungroup(q) %>% 
+      mutate(
+        across(
+          starts_with("Sum_inc_"),
+          ~(./sum(.))*100
+        )
+      ) %>% 
+      mutate(
+        across(
+          starts_with("Sum_inc_"),
+          ~cumsum(.),
+          .names = "{.col}_cumsum"
+        )
+      ) %>% 
+      mutate(quant=qq)    
+  }
+```
+
+```{r}
+Z <- 
+  bind_rows(
+    A %>% group_by(cohort) %>% f_quant(.,5) , 
+    A %>% group_by(cohort) %>% f_quant(.,10) , 
+    A %>% group_by(cohort) %>% f_quant(.,100) , 
+    A %>% group_by(cohort) %>% f_quant(.,1000)  %>% 
+      filter(q==1000) ,
+    
+    A %>% group_by(cohort,sex) %>% f_quant(.,5),
+    A %>% group_by(cohort,sex) %>% f_quant(.,10),
+    A %>% group_by(cohort,sex) %>% f_quant(.,100),
+    A %>% group_by(cohort,sex) %>% f_quant(.,1000) %>% filter(q==1000),
+  ) %>% 
+  relocate(cohort,sex,quant,q)
+
+write_csv(Z,
+          here(data_proc,
+               paste0("LI_03_", age1, "_to_", age2, "_Lifetime_quantile_shares.csv")))
+```
+
+# Indices
+
+```{r Indices}
+# Calculate indices
+f_indices <- 
+  function(X){
+    # Function to calculate area under curve
+    f_area <- 
+      function(x,y){
+        h = x-lag(x)
+        h = ifelse(is.na(h),0,h)
+        ab = y+lag(y)
+        ab = ifelse(is.na(ab),y,ab)
+        L = sum(0.5*h*ab)
+        K = 0.5
+        S = 1-(L/K)
+      }
+    
+    # Function to caclculate indices
+    I <- 
+      X %>% 
+      # Restrict sample
+      filter(x>=0&y>=0&t>=0) %>% 
+      select(cohort,x,y,t) %>% 
+      # Sample stats
+      mutate(
+        across(
+          c('x','y','t'),
+          list(Mean = mean, Tot = sum),
+          .names = "{.fn}_{.col}"
+        )
+      ) %>% 
+      # Average size
+      mutate(
+       size = Tot_t/Tot_x
+      ) %>% 
+      # Shares
+      mutate(
+        px = x/Tot_x, py = y/Tot_y, pt = t/Tot_t, num=1,
+        obs =1/sum(num)
+      ) %>% 
+      # Distribution wrt x (Prefix 'X_')
+      arrange(x) %>% 
+      mutate(
+        across(
+          c('px','py','pt','obs'),
+          cumsum,
+          .names = "X_{.col}"
+        ),
+        
+        # Indices (covariance formula)
+        Gx_cov = (2/Mean_x)*(cov(x,X_obs)), # Gini coef
+        Ct = (2/Mean_t)*(cov(t,X_obs)),
+        St = (2/Mean_t)*(cov(t,X_px)),
+        Cy_cov = (2/Mean_y)*(cov(y,X_obs)),
+        K_cov  = Ct - Gx_cov,
+        S_cov  = St - Gx_cov,
+        
+        # Indices (area formula)
+        Gx_area = f_area(X_obs,X_px), 
+        Cy_area = f_area(X_obs,X_py), 
+        Ct = f_area(X_obs,X_pt),
+        S_area = f_area(X_px,X_pt),
+        K_area = Ct - Gx_area
+      ) %>% 
+      # Redistributive effect
+      arrange(y) %>% 
+      mutate(
+        across(
+          c('px','py','pt','obs'),
+          cumsum,
+          .names = "Y_{.col}"
+        ),
+        Gy_area = f_area(Y_obs,Y_py),
+        Gy_cov  = (2/Mean_y)*(cov(y,Y_obs)),
+        R_area = Gx_area - Cy_area,
+        R_cov = Gx_cov - Cy_cov,
+        Rerank_area = Gy_area - Cy_area,
+        Rerank_cov = Gy_cov - Cy_cov,
+      ) %>% 
+      # Totals
+      mutate(
+        Tot_x=sum(x),Tot_y=sum(y),Tot_t=sum(t)
+      ) %>% 
+      select(cohort,ends_with('area')|ends_with('cov')|starts_with("Tot_")) %>% 
+      filter(row_number()==1)
+    
+  }
+```
+
+```{r}
+A <- 
+  read_feather(here(
+    data_dir,
+    paste0("LI_03_Lifetime_", age1, "_to_", age2, "_years.feather")
+  ),as_data_frame = T) %>% 
+  filter(insample=="sample") %>% 
+  mutate(cohort=year-age) %>% 
+  select(cohort,insample,pid,age,sex,starts_with("Sum_")) %>% 
+  group_by(pid) %>% 
+  filter(row_number()==1) %>% 
+  ungroup() %>% 
+  mutate(cohort=cohort+age1) %>% 
+  group_by(cohort)
+
+Z <- 
+  bind_rows(
+    A %>% 
+      mutate(x=Sum_inc_pre,t=Sum_inc_tax,y=x-t) %>% 
+      f_indices() %>% 
+      mutate(xvar="Sum_inc_pre",tvar="Sum_inc_tax"),
+    A %>% 
+      mutate(x=Sum_inc_pre,t=Sum_inc_pub,y=x+t) %>% 
+      f_indices() %>% 
+      mutate(xvar="Sum_inc_pre",tvar="Sum_inc_pub"),
+    A %>% 
+      mutate(x=Sum_inc_pre,t=Sum_inc_pen,y=x+t) %>% 
+      f_indices() %>% 
+      mutate(xvar="Sum_inc_pre",tvar="Sum_inc_pen"),
+    A %>% 
+      mutate(x=Sum_inc_pre,t=Sum_inc_pub_other,y=x+t) %>% 
+      f_indices() %>% 
+      mutate(xvar="Sum_inc_pre",tvar="Sum_inc_pub_other"),
+    A %>% 
+      mutate(x=Sum_inc_pre,y=Sum_inc_net,t=x-y) %>% 
+      f_indices() %>% 
+      mutate(xvar="Sum_inc_pre",tvar="overall"),
+    A %>% 
+      mutate(x=Sum_inc_lab,y=Sum_inc_lab,t=x-y) %>% 
+      f_indices() %>% 
+      mutate(xvar="Sum_inc_lab",tvar="Only Gini x"),
+    A %>% 
+      mutate(x=Sum_inc_cap,y=Sum_inc_cap,t=x-y) %>% 
+      f_indices() %>% 
+      mutate(xvar="Sum_inc_cap",tvar="Only Gini x"),
+    A %>% 
+      mutate(x=Sum_inc_mixed,y=Sum_inc_mixed,t=x-y) %>% 
+      f_indices() %>% 
+      mutate(xvar="Sum_inc_mixed",tvar="Only Gini x"),
+    A %>% 
+      mutate(x=Sum_ic_taxable_income_loss,t=Sum_inc_tax,y=x-t) %>% 
+      f_indices() %>% 
+      mutate(xvar="Sum_ic_taxable_income_loss",tvar="Sum_inc_tax"),
+    A %>% 
+      mutate(x=Sum_ic_total_income_loss,t=Sum_inc_tax,y=x-t) %>% 
+      f_indices() %>% 
+      mutate(xvar="Sum_ic_total_income_loss",tvar="Sum_inc_tax")
+  ) %>% 
+  relocate(cohort,xvar,tvar)
+```
+
+```{r}
+write_csv(Z,
+          here(data_proc,
+               paste0("LI_03_", age1, "_to_", age2, "_Lifetime_indices.csv")))
+```
